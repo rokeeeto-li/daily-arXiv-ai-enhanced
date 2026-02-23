@@ -26,7 +26,7 @@ This innovative tool transforms how you stay updated with arXiv papers by combin
 - Local preference storage for privacy
 - Flexible date range filtering
 
-👉 **[Try it now!](https://dw-dengwei.github.io/daily-arXiv-ai-enhanced/)** - No installation required
+👉 **[Try it now!](https://rokeeeto-li.github.io/daily-arXiv-ai-enhanced/)** - No installation required
 
 
 
@@ -130,6 +130,3 @@ We sincerely thank the following individuals and organizations for their promoti
 # Star history
 
 [![Stargazers over time](https://starchart.cc/dw-dengwei/daily-arXiv-ai-enhanced.svg?variant=adaptive)](https://starchart.cc/dw-dengwei/daily-arXiv-ai-enhanced)
-
-# Buy me a coffee
-[here](./buy-me-a-coffee/README.md)
