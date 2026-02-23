@@ -1,0 +1,225 @@
+name: Daily arXiv Pipeline
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: "Test mode: 5 papers, skip AI, fast validation"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          uv sync
+
+      - name: Fetch history from data branch (for dedup)
+        run: |
+          mkdir -p data
+          # Try to fetch recent JSONL files from the data branch
+          if git ls-remote --heads origin data | grep -q data; then
+            echo "Fetching history from data branch for deduplication..."
+            for i in $(seq 1 7); do
+              date_str=$(date -u -d "$i days ago" "+%Y-%m-%d")
+              url="https://raw.githubusercontent.com/${{ github.repository }}/data/data/${date_str}.jsonl"
+              if curl -sfL -o "data/${date_str}.jsonl" "$url"; then
+                echo "  Fetched: data/${date_str}.jsonl"
+              fi
+            done
+            echo "History files fetched: $(ls data/*.jsonl 2>/dev/null | wc -l)"
+          else
+            echo "No data branch yet, skipping history fetch"
+          fi
+
+      - name: Crawl arXiv papers
+        id: crawl
+        run: |
+          source .venv/bin/activate
+          today=$(date -u "+%Y-%m-%d")
+
+          # Remove stale today file if exists
+          rm -f "data/${today}.jsonl"
+
+          cd daily_arxiv
+          export OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          export OPENAI_BASE_URL=${{ secrets.OPENAI_BASE_URL }}
+          export TOKEN_GITHUB=${{ secrets.TOKEN_GITHUB }}
+          export LANGUAGE="${{ vars.LANGUAGE }}"
+          export CATEGORIES="${{ vars.CATEGORIES }}"
+          export MODEL_NAME="${{ vars.MODEL_NAME }}"
+
+          scrapy crawl arxiv -o ../data/${today}.jsonl
+
+          if [ ! -f "../data/${today}.jsonl" ]; then
+            echo "Crawl failed: no data file generated"
+            exit 1
+          fi
+
+          echo "crawl_date=$today" >> $GITHUB_OUTPUT
+          echo "Crawl completed"
+
+      - name: Truncate data in test mode
+        if: inputs.test_mode == true
+        run: |
+          today=${{ steps.crawl.outputs.crawl_date }}
+          FILE="data/${today}.jsonl"
+          if [ -f "$FILE" ]; then
+            head -n 5 "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+            echo "Test mode: truncated to $(wc -l < "$FILE") papers"
+          fi
+
+      - name: Check for duplicates
+        id: dedup
+        run: |
+          source .venv/bin/activate
+          cd daily_arxiv
+
+          set +e
+          python daily_arxiv/check_stats.py
+          dedup_exit_code=$?
+          set -e
+
+          echo "Dedup exit code: $dedup_exit_code"
+          echo "dedup_exit_code=$dedup_exit_code" >> $GITHUB_OUTPUT
+
+          case $dedup_exit_code in
+            0)
+              echo "has_new=true" >> $GITHUB_OUTPUT
+              ;;
+            1)
+              echo "has_new=false" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "has_new=false" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+
+      - name: AI Enhancement
+        if: steps.dedup.outputs.has_new == 'true' && inputs.test_mode != true
+        run: |
+          source .venv/bin/activate
+          today=${{ steps.crawl.outputs.crawl_date }}
+
+          cd ai
+          export OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          export OPENAI_BASE_URL=${{ secrets.OPENAI_BASE_URL }}
+          export LANGUAGE="${{ vars.LANGUAGE }}"
+          export MODEL_NAME="${{ vars.MODEL_NAME }}"
+
+          python enhance.py --data ../data/${today}.jsonl
+          echo "AI enhancement completed"
+
+      - name: Generate stub AI data (test mode)
+        if: steps.dedup.outputs.has_new == 'true' && inputs.test_mode == true
+        run: |
+          today=${{ steps.crawl.outputs.crawl_date }}
+          LANG="${{ vars.LANGUAGE }}"
+          LANG=${LANG:-en}
+          SOURCE="data/${today}.jsonl"
+          TARGET="data/${today}_AI_enhanced_${LANG}.jsonl"
+
+          # Copy raw data as stub AI-enhanced file
+          cp "$SOURCE" "$TARGET"
+          echo "Test mode: created stub AI file $TARGET"
+
+      - name: Convert to Markdown
+        if: steps.dedup.outputs.has_new == 'true'
+        run: |
+          source .venv/bin/activate
+          today=${{ steps.crawl.outputs.crawl_date }}
+          export LANGUAGE="${{ vars.LANGUAGE }}"
+
+          cd to_md
+
+          AI_FILE="../data/${today}_AI_enhanced_${LANGUAGE}.jsonl"
+          if [ -f "$AI_FILE" ]; then
+            python convert.py --data "$AI_FILE"
+            echo "Markdown conversion completed"
+          else
+            echo "Error: AI enhanced file not found: $AI_FILE"
+            exit 1
+          fi
+
+      - name: Update file list
+        if: steps.dedup.outputs.has_new == 'true'
+        run: |
+          ls data/*.jsonl 2>/dev/null | sed 's|data/||' > assets/file-list.txt
+          echo "File list updated"
+
+      - name: Commit and push to data branch
+        if: steps.dedup.outputs.has_new == 'true'
+        run: |
+          today=${{ steps.crawl.outputs.crawl_date }}
+
+          # Save data files to temp dir
+          mkdir -p /tmp/pipeline_data/data /tmp/pipeline_data/assets
+          cp -r data/* /tmp/pipeline_data/data/ 2>/dev/null || true
+          cp assets/file-list.txt /tmp/pipeline_data/assets/ 2>/dev/null || true
+
+          git config user.email "${{ vars.EMAIL }}"
+          git config user.name "${{ vars.NAME }}"
+
+          # Clean working dir before branch switch
+          rm -rf data/*.jsonl assets/file-list.txt 2>/dev/null || true
+
+          # Switch to or create data branch
+          if git ls-remote --heads origin data | grep -q data; then
+            git fetch origin data:data
+            git checkout data
+            git pull origin data || true
+          else
+            git checkout --orphan data
+            git rm -rf --cached . 2>/dev/null || true
+            mkdir -p data assets
+            echo "# Data Branch" > README.md
+            git add README.md
+            git commit -m "chore: initialize data branch"
+          fi
+
+          # Restore data files
+          mkdir -p data assets
+          cp -r /tmp/pipeline_data/data/* data/ 2>/dev/null || true
+          cp /tmp/pipeline_data/assets/file-list.txt assets/ 2>/dev/null || true
+
+          git add data/* assets/file-list.txt 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "No data changes to commit"
+          else
+            git commit -m "update: $today arXiv papers"
+          fi
+
+          # Push with retry
+          for i in 1 2 3; do
+            if git push origin data; then
+              echo "Data pushed successfully"
+              break
+            else
+              git pull origin data --no-edit || true
+              if [ "$i" -eq 3 ]; then
+                echo "Failed to push after 3 attempts"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.dedup.outputs.has_new }}" = "true" ]; then
+            echo "Pipeline completed: new content processed and pushed to data branch"
+          else
+            echo "Pipeline completed: no new content after deduplication"
+          fi
+          if [ "${{ inputs.test_mode }}" = "true" ]; then
+            echo "(Test mode was enabled)"
+          fi
