@@ -57,16 +57,18 @@ jobs:
           export CATEGORIES="${{ vars.CATEGORIES }}"
           export MODEL_NAME="${{ vars.MODEL_NAME }}"
 
-          SCRAPY_ARGS=""
-          if [ "${{ inputs.test_mode }}" = "true" ]; then
-            SCRAPY_ARGS="-s CLOSESPIDER_ITEMCOUNT=5"
-            echo "Test mode: limiting crawl to 5 papers"
-          fi
-          scrapy crawl arxiv $SCRAPY_ARGS -o ../data/${today}.jsonl
+          scrapy crawl arxiv -o ../data/${today}.jsonl
 
           if [ ! -f "../data/${today}.jsonl" ]; then
             echo "Crawl failed: no data file generated"
             exit 1
+          fi
+
+          # In test mode, truncate to 5 papers in case CLOSESPIDER didn't limit output
+          if [ "${{ inputs.test_mode }}" = "true" ]; then
+            head -n 5 "../data/${today}.jsonl" > "../data/${today}.tmp"
+            mv "../data/${today}.tmp" "../data/${today}.jsonl"
+            echo "Test mode: truncated to $(wc -l < "../data/${today}.jsonl") papers"
           fi
 
           echo "crawl_date=$today" >> $GITHUB_OUTPUT
@@ -164,8 +166,8 @@ jobs:
           git config user.email "${{ vars.EMAIL }}"
           git config user.name "${{ vars.NAME }}"
 
-          # Clean working dir before branch switch
-          rm -rf data/*.jsonl assets/file-list.txt 2>/dev/null || true
+          # Clean working dir before branch switch (jsonl, md, etc.)
+          rm -rf data/* assets/file-list.txt 2>/dev/null || true
 
           # Switch to or create data branch
           if git ls-remote --heads origin data | grep -q data; then
