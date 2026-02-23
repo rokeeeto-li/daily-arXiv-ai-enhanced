@@ -57,7 +57,12 @@ jobs:
           export CATEGORIES="${{ vars.CATEGORIES }}"
           export MODEL_NAME="${{ vars.MODEL_NAME }}"
 
-          scrapy crawl arxiv -o ../data/${today}.jsonl
+          SCRAPY_ARGS=""
+          if [ "${{ inputs.test_mode }}" = "true" ]; then
+            SCRAPY_ARGS="-s CLOSESPIDER_ITEMCOUNT=5"
+            echo "Test mode: limiting crawl to 5 papers"
+          fi
+          scrapy crawl arxiv $SCRAPY_ARGS -o ../data/${today}.jsonl
 
           if [ ! -f "../data/${today}.jsonl" ]; then
             echo "Crawl failed: no data file generated"
@@ -66,16 +71,6 @@ jobs:
 
           echo "crawl_date=$today" >> $GITHUB_OUTPUT
           echo "Crawl completed"
-
-      - name: Truncate data in test mode
-        if: inputs.test_mode == true
-        run: |
-          today=${{ steps.crawl.outputs.crawl_date }}
-          FILE="data/${today}.jsonl"
-          if [ -f "$FILE" ]; then
-            head -n 5 "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
-            echo "Test mode: truncated to $(wc -l < "$FILE") papers"
-          fi
 
       - name: Check for duplicates
         id: dedup
