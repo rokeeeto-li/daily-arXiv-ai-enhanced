@@ -781,8 +781,8 @@ function renderCategoryFilter(categories) {
   
   const seenIds = new Set();
   Object.keys(categoryCounts).forEach(cat => {
-    if (data[cat]) {
-      data[cat].forEach(p => seenIds.add(p.id));
+    if (paperData[cat]) {
+      paperData[cat].forEach(p => seenIds.add(p.id));
     }
   });
   let totalPapers = seenIds.size;
