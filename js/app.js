@@ -709,20 +709,59 @@ async function loadPapersByDate(date) {
   }
 }
 
+// arXiv category code → full name mapping
+const CATEGORY_NAMES = {
+  'cs.AI': 'Artificial Intelligence',
+  'cs.CV': 'Computer Vision',
+  'cs.CL': 'Computation and Language',
+  'cs.LG': 'Machine Learning',
+  'cs.RO': 'Robotics',
+  'cs.NE': 'Neural and Evolutionary Computing',
+  'cs.IR': 'Information Retrieval',
+  'cs.SE': 'Software Engineering',
+  'cs.CR': 'Cryptography and Security',
+  'cs.DC': 'Distributed Computing',
+  'cs.DS': 'Data Structures and Algorithms',
+  'cs.HC': 'Human-Computer Interaction',
+  'cs.IT': 'Information Theory',
+  'cs.MA': 'Multiagent Systems',
+  'cs.MM': 'Multimedia',
+  'cs.NI': 'Networking',
+  'cs.PL': 'Programming Languages',
+  'cs.SD': 'Sound',
+  'cs.SI': 'Social and Information Networks',
+  'cs.SY': 'Systems and Control',
+  'cs.GR': 'Graphics',
+  'cs.CG': 'Computational Geometry',
+  'cs.DB': 'Databases',
+  'cs.AR': 'Hardware Architecture',
+  'stat.ML': 'Machine Learning (Stats)',
+  'eess.AS': 'Audio and Speech Processing',
+  'eess.IV': 'Image and Video Processing',
+  'eess.SP': 'Signal Processing',
+  'eess.SY': 'Systems and Control',
+  'math.OC': 'Optimization and Control',
+};
+
+function getCategoryDisplayName(code) {
+  return CATEGORY_NAMES[code] || code;
+}
+
 function parseJsonlData(jsonlText, date) {
   const result = {};
-  
+
   const lines = jsonlText.trim().split('\n');
-  
+
   lines.forEach(line => {
     try {
       const paper = JSON.parse(line);
-      
+
       if (!paper.categories) {
         return;
       }
-      
+
       let allCategories = Array.isArray(paper.categories) ? paper.categories : [paper.categories];
+      const primaryCategory = allCategories[0];
 
       const summary = paper.AI && paper.AI.tldr ? paper.AI.tldr : paper.summary;
 
@@ -744,17 +783,15 @@ function parseJsonlData(jsonlText, date) {
         code_last_update: paper.code_last_update || ''
       };
 
-      allCategories.forEach(cat => {
-        if (!result[cat]) {
-          result[cat] = [];
-        }
-        result[cat].push(paperEntry);
-      });
+      if (!result[primaryCategory]) {
+        result[primaryCategory] = [];
+      }
+      result[primaryCategory].push(paperEntry);
     } catch (error) {
       console.error('解析JSON行失败:', error, line);
     }
   });
-  
+
   return result;
 }
 
@@ -779,13 +816,10 @@ function renderCategoryFilter(categories) {
   const container = document.querySelector('.category-scroll');
   const { sortedCategories, categoryCounts } = categories;
   
-  const seenIds = new Set();
-  Object.keys(categoryCounts).forEach(cat => {
-    if (paperData[cat]) {
-      paperData[cat].forEach(p => seenIds.add(p.id));
-    }
+  let totalPapers = 0;
+  Object.values(categoryCounts).forEach(count => {
+    totalPapers += count;
   });
-  let totalPapers = seenIds.size;
   
   container.innerHTML = `
     <button class="category-button ${currentCategory === 'all' ? 'active' : ''}" data-category="all">All<span class="category-count">${totalPapers}</span></button>
@@ -795,7 +829,7 @@ function renderCategoryFilter(categories) {
     const count = categoryCounts[category];
     const button = document.createElement('button');
     button.className = `category-button ${category === currentCategory ? 'active' : ''}`;
-    button.innerHTML = `${category}<span class="category-count">${count}</span>`;
+    button.innerHTML = `${getCategoryDisplayName(category)}<span class="category-count">${count}</span>`;
     button.dataset.category = category;
     button.addEventListener('click', () => {
       filterByCategory(category);
@@ -908,16 +942,10 @@ function renderPapers() {
   
   let papers = [];
   if (currentCategory === 'all') {
-    const seen = new Set();
     const { sortedCategories } = getAllCategories(paperData);
     sortedCategories.forEach(category => {
       if (paperData[category]) {
-        paperData[category].forEach(p => {
-          if (!seen.has(p.id)) {
-            seen.add(p.id);
-            papers.push(p);
-          }
-        });
+        papers = papers.concat(paperData[category]);
       }
     });
   } else if (paperData[currentCategory]) {
