@@ -42,11 +42,10 @@ jobs:
 
       - name: Crawl arXiv papers
         id: crawl
+        if: inputs.test_mode != true
         run: |
           source .venv/bin/activate
           today=$(date -u "+%Y-%m-%d")
-
-          # Remove stale today file if exists
           rm -f "data/${today}.jsonl"
 
           cd daily_arxiv
@@ -64,15 +63,26 @@ jobs:
             exit 1
           fi
 
-          # In test mode, truncate to 5 papers in case CLOSESPIDER didn't limit output
-          if [ "${{ inputs.test_mode }}" = "true" ]; then
-            head -n 5 "../data/${today}.jsonl" > "../data/${today}.tmp"
-            mv "../data/${today}.tmp" "../data/${today}.jsonl"
-            echo "Test mode: truncated to $(wc -l < "../data/${today}.jsonl") papers"
-          fi
-
           echo "crawl_date=$today" >> $GITHUB_OUTPUT
-          echo "Crawl completed"
+
+      - name: Generate stub data (test mode)
+        id: crawl_test
+        if: inputs.test_mode == true
+        run: |
+          today=$(date -u "+%Y-%m-%d")
+          echo "crawl_date=$today" >> $GITHUB_OUTPUT
+
+          # Generate 3 fake papers for pipeline validation
+          printf '%s\n' \
+            '{"id": "2602.00001", "categories": ["cs.AI"]}' \
+            '{"id": "2602.00002", "categories": ["cs.CV"]}' \
+            '{"id": "2602.00003", "categories": ["cs.RO"]}' \
+            > "data/${today}.jsonl"
+          echo "Test mode: generated 3 stub papers"
+
+      - name: Set date
+        id: date
+        run: echo "today=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Check for duplicates
         id: dedup
@@ -105,7 +115,7 @@ jobs:
         if: steps.dedup.outputs.has_new == 'true' && inputs.test_mode != true
         run: |
           source .venv/bin/activate
-          today=${{ steps.crawl.outputs.crawl_date }}
+          today=${{ steps.date.outputs.today }}
 
           cd ai
           export OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
@@ -119,7 +129,7 @@ jobs:
       - name: Generate stub AI data (test mode)
         if: steps.dedup.outputs.has_new == 'true' && inputs.test_mode == true
         run: |
-          today=${{ steps.crawl.outputs.crawl_date }}
+          today=${{ steps.date.outputs.today }}
           LANG="${{ vars.LANGUAGE }}"
           LANG=${LANG:-en}
           SOURCE="data/${today}.jsonl"
@@ -133,7 +143,7 @@ jobs:
         if: steps.dedup.outputs.has_new == 'true'
         run: |
           source .venv/bin/activate
-          today=${{ steps.crawl.outputs.crawl_date }}
+          today=${{ steps.date.outputs.today }}
           export LANGUAGE="${{ vars.LANGUAGE }}"
 
           cd to_md
@@ -156,7 +166,7 @@ jobs:
       - name: Commit and push to data branch
         if: steps.dedup.outputs.has_new == 'true'
         run: |
-          today=${{ steps.crawl.outputs.crawl_date }}
+          today=${{ steps.date.outputs.today }}
 
           # Save data files to temp dir
           mkdir -p /tmp/pipeline_data/data /tmp/pipeline_data/assets
