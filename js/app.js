@@ -821,10 +821,18 @@ function getAllCategories(data) {
     catePaperCount[category] = data[category] ? data[category].length : 0;
   });
   
+  // Custom category display order
+  const CATEGORY_ORDER = [
+    'cs.RO', 'cs.AI', 'cs.CV', 'cs.GR', 'cs.MA',
+    'cs.LG', 'cs.CL', 'cs.MM'
+  ];
+  const orderIndex = (cat) => {
+    const idx = CATEGORY_ORDER.indexOf(cat);
+    return idx === -1 ? CATEGORY_ORDER.length : idx;
+  };
+
   return {
-    sortedCategories: categories.sort((a, b) => {
-      return a.localeCompare(b);
-    }),
+    sortedCategories: categories.sort((a, b) => orderIndex(a) - orderIndex(b)),
     categoryCounts: catePaperCount
   };
 }
