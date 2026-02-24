@@ -27,6 +27,11 @@ const DATA_CONFIG = {
     dataBranch: 'data',
 
     /**
+     * Configured arXiv categories (injected during deployment)
+     */
+    categories: 'PLACEHOLDER_CATEGORIES',
+
+    /**
      * Get the base URL for raw GitHub content from data branch
      * @returns {string} Base URL for raw GitHub content
      */

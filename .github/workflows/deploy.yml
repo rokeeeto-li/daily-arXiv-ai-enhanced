@@ -27,9 +27,12 @@ jobs:
         run: |
           REPO_OWNER="${{ github.repository_owner }}"
           REPO_NAME="${{ github.event.repository.name }}"
+          CATEGORIES="${{ vars.CATEGORIES }}"
+          CATEGORIES=${CATEGORIES:-cs.CV}
           sed -i "s/PLACEHOLDER_REPO_OWNER/$REPO_OWNER/g" js/data-config.js
           sed -i "s/PLACEHOLDER_REPO_NAME/$REPO_NAME/g" js/data-config.js
-          echo "Injected repo: $REPO_OWNER/$REPO_NAME"
+          sed -i "s/PLACEHOLDER_CATEGORIES/$CATEGORIES/g" js/data-config.js
+          echo "Injected repo: $REPO_OWNER/$REPO_NAME, categories: $CATEGORIES"
 
       - name: Inject auth-config.js
         run: |

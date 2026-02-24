@@ -783,10 +783,27 @@ function parseJsonlData(jsonlText, date) {
         code_last_update: paper.code_last_update || ''
       };
 
-      if (!result[primaryCategory]) {
-        result[primaryCategory] = [];
+      // Get configured categories from DATA_CONFIG
+      const configuredCats = typeof DATA_CONFIG !== 'undefined' && DATA_CONFIG.categories
+        ? new Set(DATA_CONFIG.categories.split(',').map(s => s.trim()))
+        : null;
+
+      // Index paper under each of its categories that is in the configured set
+      const catsToIndex = configuredCats
+        ? allCategories.filter(c => configuredCats.has(c))
+        : [primaryCategory];
+
+      // Fallback: if none of the paper's categories are configured, use primary
+      if (catsToIndex.length === 0) {
+        catsToIndex.push(primaryCategory);
       }
-      result[primaryCategory].push(paperEntry);
+
+      catsToIndex.forEach(cat => {
+        if (!result[cat]) {
+          result[cat] = [];
+        }
+        result[cat].push(paperEntry);
+      });
     } catch (error) {
       console.error('解析JSON行失败:', error, line);
     }
@@ -816,10 +833,13 @@ function renderCategoryFilter(categories) {
   const container = document.querySelector('.category-scroll');
   const { sortedCategories, categoryCounts } = categories;
   
-  let totalPapers = 0;
-  Object.values(categoryCounts).forEach(count => {
-    totalPapers += count;
+  const seenIds = new Set();
+  Object.keys(categoryCounts).forEach(cat => {
+    if (paperData[cat]) {
+      paperData[cat].forEach(p => seenIds.add(p.id));
+    }
   });
+  let totalPapers = seenIds.size;
   
   container.innerHTML = `
     <button class="category-button ${currentCategory === 'all' ? 'active' : ''}" data-category="all">All<span class="category-count">${totalPapers}</span></button>
@@ -942,10 +962,16 @@ function renderPapers() {
   
   let papers = [];
   if (currentCategory === 'all') {
+    const seen = new Set();
     const { sortedCategories } = getAllCategories(paperData);
     sortedCategories.forEach(category => {
       if (paperData[category]) {
-        papers = papers.concat(paperData[category]);
+        paperData[category].forEach(p => {
+          if (!seen.has(p.id)) {
+            seen.add(p.id);
+            papers.push(p);
+          }
+        });
       }
     });
   } else if (paperData[currentCategory]) {
