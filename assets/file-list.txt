@@ -1,6 +1,5 @@
-2026-06-12.jsonl
-2026-06-15.jsonl
 2026-06-17.jsonl
 2026-06-18.jsonl
 2026-06-19.jsonl
-2026-06-19_AI_enhanced_English.jsonl
+2026-06-24.jsonl
+2026-06-24_AI_enhanced_English.jsonl
